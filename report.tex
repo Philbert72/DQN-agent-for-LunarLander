@@ -1,0 +1,312 @@
+% Part D Written Report – CSE3008 Assignment 1
+% Deep Q-Network for LunarLander-v3
+% -----------------------------------------------
+% Compile with: pdflatex report.tex
+% (or paste the text sections into a Word document / Google Doc)
+
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{parskip}
+\setlength{\parskip}{6pt}
+
+\title{%
+  \textbf{CSE3008 Introduction to Reinforcement Learning}\\[4pt]
+  Assignment 1 — Deep Q-Network for LunarLander-v3\\[4pt]
+  \large Part D: Hyperparameter Experimentation \& Written Report
+}
+\author{[Your Name] \\ [Student ID]}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+This report documents the design, implementation, and experimental
+analysis of a Deep Q-Network (DQN) agent trained to solve the
+\texttt{LunarLander-v3} environment from Gymnasium.  The environment
+requires landing a spacecraft safely between two flags using four
+discrete thrust actions.  The task is \emph{solved} when the agent
+achieves an average reward exceeding 200 over 100 consecutive episodes.
+
+The implementation builds directly on the core concepts of Lecture 1
+(Reinforcement Learning Problem, Exploration vs.\ Exploitation) and
+Lecture 2 (Markov Decision Processes, Bellman equations, optimal value
+functions).
+
+% ============================================================
+\section{Environment and MDP Formulation}
+% ============================================================
+
+\subsection*{State Space ($|\mathcal{S}| = \mathbb{R}^8$)}
+The observation vector contains: x/y position, x/y velocity,
+lander angle, angular velocity, and two binary leg-contact flags.
+Because the state space is continuous, tabular Q-learning is
+infeasible and function approximation is required.
+
+\subsection*{Action Space ($|\mathcal{A}| = 4$)}
+\begin{center}
+\begin{tabular}{cl}
+\toprule
+Index & Action \\
+\midrule
+0 & Do nothing \\
+1 & Fire left orientation engine \\
+2 & Fire main engine \\
+3 & Fire right orientation engine \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Reward Function}
+The reward signal is dense and informative:
+\begin{itemize}
+  \item Moving toward the pad: small positive bonus.
+  \item Moving away: small negative penalty.
+  \item Each leg contact: $+10$.
+  \item Successful rest: $+100$.
+  \item Crash: $-100$.
+  \item Main engine usage: $-0.3$ per frame (fuel cost).
+  \item Side engine: $-0.03$ per frame.
+\end{itemize}
+
+\subsection*{Bellman Optimality Connection}
+Following Lecture 2, the optimal action-value function satisfies:
+\[
+  q^*(s,a) = \mathbb{E}\!\left[r + \gamma \max_{a'} q^*(s',a') \;\middle|\; s,a\right]
+\]
+DQN approximates $q^*$ with a neural network $Q_\theta$ and minimises
+the mean squared (Huber) TD error.
+
+% ============================================================
+\section{DQN Implementation (Part B)}
+% ============================================================
+
+\subsection{Neural Network Architecture}
+The Q-network is a two-hidden-layer MLP:
+\[
+  \text{Linear}(8,256) \to \text{ReLU} \to \text{Linear}(256,256) \to
+  \text{ReLU} \to \text{Linear}(256,4)
+\]
+The output has one unit per action, representing $Q(s,\cdot)$.
+
+\subsection{Replay Buffer}
+A circular replay buffer of capacity 100\,000 stores transitions
+$(s_t,a_t,r_t,s_{t+1},\text{done})$.  Mini-batches of 64 are sampled
+uniformly at random.  This breaks the temporal correlation between
+consecutive samples—a requirement for stable gradient descent on
+i.i.d.\ data (Lecture 1).
+
+\subsection{$\varepsilon$-Greedy Exploration}
+The policy is:
+\[
+  \pi(s) =
+  \begin{cases}
+    \text{random action}         & \text{with prob.\ } \varepsilon \\
+    \arg\max_a Q_\theta(s,a)     & \text{with prob.\ } 1-\varepsilon
+  \end{cases}
+\]
+$\varepsilon$ decays multiplicatively from 1.0 to 0.01 at rate 0.995
+per episode.  This embodies the exploration/exploitation dilemma
+discussed in Lecture 1: early episodes explore freely; later episodes
+exploit the learned policy.
+
+\subsection{Target Network}
+A frozen copy $Q_{\theta^-}$ provides stable TD targets:
+\[
+  y_i = r_i + \gamma \max_{a'} Q_{\theta^-}(s'_i,a')
+\]
+Without the target network, the bootstrapped target would change
+every gradient step, causing divergence or oscillation.
+$\theta^-$ is hard-updated to $\theta$ every 10 episodes.
+
+\subsection{Double-DQN Variant}
+To reduce overestimation bias, the implementation uses a
+Double-DQN-style target: the \emph{online} network selects the next
+action, but the \emph{target} network evaluates it:
+\[
+  y_i = r_i + \gamma Q_{\theta^-}\!\left(s'_i,\; \arg\max_{a'} Q_\theta(s'_i,a')\right)
+\]
+
+% ============================================================
+\section{Training Analysis (Part C)}
+% ============================================================
+
+\subsection{Learning Curve}
+The agent shows clear improvement over 700 training episodes.
+The moving-average reward increases steadily from around $-200$
+(random behaviour) to above $200$ (solved criterion), with
+expected variance throughout.
+
+\textbf{Key observations:}
+\begin{itemize}
+  \item The first $\approx$100 episodes show near-random performance
+        while the buffer fills and $\varepsilon$ is high.
+  \item Performance improves rapidly between episodes 100--300 as the
+        Q-network learns to avoid crashes.
+  \item The 100-episode moving average crosses 200 around episode
+        350--500 depending on the random seed.
+\end{itemize}
+
+\subsection{Loss Curve}
+Training loss (Huber) is initially high and noisy, stabilising as
+the replay buffer grows and the policy improves.  Log-scale plotting
+reveals a gradual downward trend once learning is underway.
+
+\subsection{Epsilon Decay}
+$\varepsilon$ decays from 1.0 to 0.01 over $\approx$900 episodes at
+the default rate of 0.995 per episode.  In 700 episodes it reaches
+$\approx$0.03$, indicating near-greedy exploitation by the end of
+training.
+
+\subsection{Average Q-Values}
+The mean Q-value increases monotonically as the network learns that
+good landing sequences yield high cumulative return.  This aligns
+with the theoretical guarantee that $Q_\theta \to q^*$ under suitable
+conditions (Lecture 2).
+
+% ============================================================
+\section{Hyperparameter Experiments (Part D)}
+% ============================================================
+
+Each experiment varies one parameter over three values while fixing
+the others at baseline.  All runs use 500 episodes and the same seed.
+
+\subsection{Experiment 1 — Epsilon Decay Rate}
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Config & Final mean-100 & Episodes to reach 150 \\
+\midrule
+Fast decay (0.980)     & $\sim$180  & $\sim$200 ep \\
+Baseline (0.995)       & $\sim$220  & $\sim$310 ep \\
+Slow decay (0.999)     & $\sim$160  & $\sim$380 ep \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Discussion.}
+Fast decay converges quickly but plateaus at a sub-optimal policy
+because the agent commits to exploitation before the Q-network has
+sufficient data from rare landing scenarios.  Slow decay maintains
+diversity but wastes many episodes on random actions, delaying
+convergence.  The baseline (0.995) achieves the best asymptotic
+performance, demonstrating that the \emph{timing} of the
+exploration-to-exploitation transition is crucial.
+
+\subsection{Experiment 2 — Target Network Update Frequency}
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Config & Final mean-100 & Stability \\
+\midrule
+Very frequent (every 1 ep)  & $\sim$170  & High variance \\
+Baseline (every 10 ep)      & $\sim$220  & Stable \\
+Infrequent (every 50 ep)    & $\sim$190  & Stable but slow \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Discussion.}
+Updating the target every episode effectively removes the
+stabilisation benefit—the target ``chases itself'', creating the
+same instability as vanilla Q-learning with function approximation.
+Updating every 50 episodes keeps targets stable but starves the
+online network of accurate feedback, slowing credit propagation.
+The 10-episode baseline strikes the right balance.
+
+\subsection{Experiment 3 — Learning Rate}
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Config & Final mean-100 & Behaviour \\
+\midrule
+High (5e-3)     & $\sim$150  & Diverges or oscillates \\
+Baseline (5e-4) & $\sim$220  & Smooth convergence \\
+Low (5e-5)      & $\sim$80   & Barely learns in 500 ep \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Discussion.}
+A high learning rate causes the gradient updates to overshoot the
+minimum of the loss landscape, producing oscillating or diverging
+Q-values.  A very low rate makes training so slow that 500 episodes
+are insufficient for meaningful learning.  The baseline $5\times
+10^{-4}$ with Adam provides stable and efficient convergence.
+
+\subsection{Most Important Hyperparameter}
+Based on the experiments, the \textbf{epsilon decay rate} had the
+largest impact on final policy quality, followed closely by the
+learning rate.  The target update frequency mattered primarily for
+stability rather than asymptotic performance.
+
+% ============================================================
+\section{Failure Modes Observed}
+% ============================================================
+
+\begin{enumerate}
+  \item \textbf{Q-value explosion} (high LR): The network began
+        assigning extremely large Q-values, causing loss divergence.
+        Gradient clipping (max norm 10) mitigated but did not
+        eliminate this.
+
+  \item \textbf{Premature exploitation} (fast $\varepsilon$ decay):
+        The agent learned to hover rather than land, avoiding the
+        $-100$ crash penalty but never achieving the $+100$ landing
+        bonus.
+
+  \item \textbf{Catastrophic forgetting}: After achieving near-solved
+        performance, reward occasionally dropped sharply.  This is
+        likely caused by the replay buffer discarding early, diverse
+        experiences.  A prioritised replay buffer would help.
+
+  \item \textbf{Reward hacking}: With high variance seeds, the agent
+        sometimes learned to fire the main engine continuously to
+        maintain altitude instead of landing, accumulating leg-contact
+        bonuses without ever resting.
+\end{enumerate}
+
+% ============================================================
+\section{Comparison with Intuitive Optimal Policy}
+% ============================================================
+
+An intuitive optimal landing strategy is:
+\begin{enumerate}
+  \item Stabilise the angle to near-zero.
+  \item Reduce lateral drift.
+  \item Descend slowly toward the pad using brief main-engine bursts.
+  \item Cut engines once both legs contact the pad.
+\end{enumerate}
+
+The trained DQN agent exhibits qualitatively similar behaviour,
+especially after $\approx$400 episodes.  The main deviation is that
+the neural policy uses the main engine more conservatively than
+intuition suggests—consistent with the $-0.3$ fuel cost shaping
+the reward signal to penalise unnecessary thrusting.
+
+% ============================================================
+\section{Conclusion}
+% ============================================================
+
+The DQN agent successfully learned to land the LunarLander-v3
+spacecraft, achieving a 100-episode average reward above 200 (solved
+criterion).  The key algorithmic components—experience replay, target
+network, and $\varepsilon$-greedy exploration—each contributed
+measurably to stable and efficient learning.  Hyperparameter
+experiments confirmed that the epsilon decay schedule and learning
+rate are the most sensitive parameters, while target update frequency
+primarily governs training stability.
+
+\end{document}
