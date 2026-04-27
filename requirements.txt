@@ -1,7 +1,12 @@
-# CSE3008 Assignment 1 – LunarLander DQN
-# Install with: pip install -r requirements.txt
+# Required packages
+gymnasium[box2d]
+torch
+torchvision
+numpy
+matplotlib
+imageio  # for saving videos
+tqdm  # for progress bars
 
-torch>=2.0.0
-gymnasium[box2d]>=0.29.0
-numpy>=1.24.0
-matplotlib>=3.7.0
+# Optional but recommended
+tensorboard  # for advanced logging
+jupyter  # for experimentation

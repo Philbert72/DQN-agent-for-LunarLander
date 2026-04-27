@@ -1,151 +1,70 @@
-# CSE3008 Assignment 1 — LunarLander DQN
+# Assignment 1: Lunar Lander with Deep Q-Learning
 
-Complete implementation of a Deep Q-Network (DQN) agent for
-`LunarLander-v3`, covering all four assignment parts.
+## Overview
 
----
+In this assignment, you will build and evaluate a **Deep Q-Network (DQN)** agent for the **LunarLander-v3** environment. Your goal is to train an agent that can safely land a spacecraft between the two flags while using thrust efficiently.
 
-## File Overview
 
-| File | Purpose |
-|---|---|
-| `dqn_agent.py` | Core DQN: `ReplayBuffer`, `QNetwork`, `DQNAgent` |
-| `utils.py` | Plotting, evaluation, statistics helpers |
-| `train.py` | Parts A, B, C — baseline, training, evaluation |
-| `hyperparameter_sweep.py` | Part D — three controlled experiments |
-| `report.tex` | Part D written report (LaTeX source) |
-| `requirements.txt` | Python dependencies |
+## Problem Description
 
----
+The LunarLander environment simulates a spacecraft descending onto the moon's surface. The lander begins near the top-center of the screen with a small random initial force applied. It must learn how to control its descent, maintain a stable orientation, and land safely on the designated landing pad.
 
-## Setup
+This assignment uses the **Gymnasium** implementation of LunarLander-v3, which is part of the actively maintained Gymnasium project.
 
-```bash
-# 1. Create a virtual environment (recommended)
-python3 -m venv rl_env
-source rl_env/bin/activate        # Windows: rl_env\Scripts\activate
+## Environment Details
 
-# 2. Install dependencies
-pip install -r requirements.txt
+The spacecraft is equipped with:
+- one **main engine** for upward thrust,
+- two **side engines** for rotation and lateral adjustment.
 
-# On some systems Box2D needs extra system libraries:
-#   macOS: brew install swig
-#   Linux: sudo apt-get install swig build-essential
-```
+The lander is affected by lunar gravity and must reach the landing zone centered at coordinate `(0, 0)` without crashing. Landing outside the marked pad is possible, but it is typically less rewarding.
 
----
+### State Space
 
-## Running the Assignment
+The state is an 8-dimensional vector containing:
+1. horizontal position `x`
+2. vertical position `y`
+3. horizontal velocity `vx`
+4. vertical velocity `vy`
+5. angle
+6. angular velocity
+7. left leg contact indicator
+8. right leg contact indicator
 
-### Full run (Parts A + B + C)
-```bash
-python train.py
-```
+### Action Space
 
-### Run only Part A (random baseline)
-```bash
-python train.py --part a
-```
+The action space is discrete with 4 possible actions:
+- **0**: Do nothing
+- **1**: Fire left orientation engine
+- **2**: Fire main engine
+- **3**: Fire right orientation engine
 
-### Run only DQN training (Part B + C)
-```bash
-python train.py --part b
-```
+### Reward Structure
 
-### Evaluate a saved model
-```bash
-python train.py --eval
-```
+The environment provides dense rewards to encourage good landing behavior:
+- small positive or negative rewards for moving toward or away from the landing pad,
+- **-100** for crashing,
+- **+100** for a successful landing / coming to rest,
+- **+10** for each leg making contact with the ground,
+- **-0.3** per frame for firing the main engine,
+- **-0.03** per frame for firing a side engine.
 
-### Part D — Hyperparameter sweep (all 3 experiments)
-```bash
-python hyperparameter_sweep.py
-```
+### Solved Criterion
 
-### Part D — Run a single experiment
-```bash
-python hyperparameter_sweep.py --exp epsilon   # epsilon decay
-python hyperparameter_sweep.py --exp target    # target update freq
-python hyperparameter_sweep.py --exp lr        # learning rate
-```
+The environment is considered solved when the agent achieves an **average reward of at least 200 over 100 consecutive episodes**.
 
 ---
 
-## Output Structure
+## Starter Code
 
-After a full run, the following directories are created:
+A starter template is provided in `lunar_lander.py`. In addition, `utils.py` includes helper functions that may be useful for completing the assignment.
 
+## Recording Videos
+
+The following example shows how to create the environment and record videos. The `episode_trigger` setting records only every 50th episode to reduce disk usage during long training runs.
+
+```python
+# record videos
+env = gym.make('LunarLander-v3', render_mode='rgb_array')
+env = RecordVideo(env, 'videos/', episode_trigger=lambda x: x % 50 == 0)
 ```
-checkpoints/         ← model weights saved every 50 episodes
-videos/
-  random_baseline/   ← Part A: 5 random-agent recordings
-  training/          ← Part B: video every 50 training episodes
-  test/              ← Part C: 5 test episode recordings
-plots/
-  partA_random_baseline.png
-  partC_training_curves.png     ← 4-panel: reward, loss, ε, Q-value
-  partC_test_rewards.png
-  partD_epsilon_decay.png
-  partD_target_update.png
-  partD_learning_rate.png
-lunar_lander_dqn.pth            ← best model checkpoint
-```
-
----
-
-## Architecture Summary
-
-### ReplayBuffer
-- Circular deque of capacity 100,000
-- Stores `(state, action, reward, next_state, done)`
-- Returns uniformly sampled mini-batches as tensors
-
-### QNetwork
-```
-Linear(8, 256) → ReLU → Linear(256, 256) → ReLU → Linear(256, 4)
-```
-
-### DQNAgent
-- **ε-greedy** exploration: ε decays from 1.0 → 0.01 at rate 0.995/episode
-- **Double DQN** targets: online net selects action, target net evaluates
-- **Hard target update**: every 10 episodes
-- **Gradient clipping**: max norm 10
-- **Optimiser**: Adam, lr = 5e-4
-- **Loss**: Huber (robust to large TD errors)
-
----
-
-## Hyperparameters (defaults)
-
-| Parameter | Value |
-|---|---|
-| Learning rate | 5e-4 |
-| Discount γ | 0.99 |
-| Batch size | 64 |
-| Buffer size | 100,000 |
-| ε start / end / decay | 1.0 / 0.01 / 0.995 |
-| Target update (eps) | 10 |
-| Hidden layers | 256, 256 |
-| Gradient update every | 4 steps |
-| Warmup steps | 1,000 |
-
----
-
-## Expected Performance
-
-| Phase | Mean reward |
-|---|---|
-| Random baseline | ≈ −150 to −100 |
-| After 100 episodes | ≈ −50 to 50 |
-| After 300 episodes | ≈ 100 to 150 |
-| Solved (≥200 over 100 eps) | ≈ episode 350–500 |
-
----
-
-## Submission Checklist
-
-- [ ] `dqn_agent.py`, `utils.py`, `train.py`, `hyperparameter_sweep.py`
-- [ ] `lunar_lander_dqn.pth` (trained model weights)
-- [ ] Plots: `plots/partA_*.png`, `plots/partC_*.png`, `plots/partD_*.png`
-- [ ] Videos: 3–5 GIFs/MP4s from `videos/random_baseline/` and `videos/test/`
-- [ ] `report.pdf` (compile `report.tex` with pdflatex)
