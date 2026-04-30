@@ -1,4 +1,5 @@
 # Assignment 1: Lunar Lander with Deep Q-Learning
+<img width="600" height="400" alt="episode_1" src="https://github.com/user-attachments/assets/27cdd2a5-fbd6-4528-aad5-db5903b899a5" />
 
 ## Overview
 
